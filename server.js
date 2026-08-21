@@ -1,7 +1,8 @@
 const express = require("express");
 
 const app = express();
-const PORT = 3000;
+
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
@@ -21,17 +22,17 @@ app.get("/api/health", (req, res) => {
 app.post("/api/order", (req, res) => {
   const { network, phone, bundle, price } = req.body;
 
-  if (!network || !phone || !bundle || !price) {
+  if (!network || !phone || !bundle || price === undefined) {
     return res.status(400).json({
       error: "Missing order information"
     });
   }
 
   const order = {
-    network,
-    phone,
-    bundle,
-    price,
+    network: network,
+    phone: phone,
+    bundle: bundle,
+    price: price,
     status: "pending",
     createdAt: new Date().toISOString()
   };
@@ -41,7 +42,7 @@ app.post("/api/order", (req, res) => {
   res.json({
     success: true,
     message: "Order received",
-    order
+    order: order
   });
 });
 
