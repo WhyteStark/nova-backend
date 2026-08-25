@@ -174,5 +174,3 @@ app.get("/api/clubkonnect-test", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`NOVA backend running on port ${PORT}`);
 });
-
-
