@@ -138,6 +138,39 @@ app.get("/api/verify/:reference", async (req, res) => {
     });
   }
 });
+// Test ClubKonnect API connection
+app.get("/api/clubkonnect-test", async (req, res) => {
+  try {
+    const userId = process.env.CLUBKONNECT_USERID;
+    const apiKey = process.env.CLUBKONNECT_APIKEY;
+
+    if (!userId || !apiKey) {
+      return res.status(500).json({
+        success: false,
+        error: "ClubKonnect credentials are missing"
+      });
+    }
+
+    const url =
+      `https://www.nellobytesystems.com/APIQueryV1.asp` +
+      `?UserID=${encodeURIComponent(userId)}` +
+      `&APIKey=${encodeURIComponent(apiKey)}` +
+      `&RequestID=NOVA-TEST-${Date.now()}`;
+
+    const response = await fetch(url);
+    const data = await response.text();
+
+    res.status(response.ok ? 200 : response.status).send(data);
+
+  } catch (error) {
+    console.error("CLUBKONNECT TEST ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      error: "Unable to connect to ClubKonnect"
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`NOVA backend running on port ${PORT}`);
 });
