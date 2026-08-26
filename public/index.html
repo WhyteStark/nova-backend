@@ -416,596 +416,520 @@
   </div>
 
 
-  <script>
+<script>
 
-    /*
-    |--------------------------------------------------------------------------
-    | NOVA CONFIG
-    |--------------------------------------------------------------------------
-    */
+  /*
+  |--------------------------------------------------------------------------
+  | NOVA CONFIG
+  |--------------------------------------------------------------------------
+  */
 
-    const PAYSTACK_PUBLIC_KEY =
-      "pk_test_7ede74ad6f139b9b920adb0ae469613cffdd1f6f";
+  const PAYSTACK_PUBLIC_KEY =
+    "pk_test_7ede74ad6f139b9b920adb0ae469613cffdd1f6f";
 
-    const BACKEND_URL =
-      "https://nova-backend-fh5p.onrender.com";
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | STATE
-    |--------------------------------------------------------------------------
-    */
-
-    let selectedNetwork = null;
-
-    let selectedBundle = null;
+  const BACKEND_URL =
+    "https://nova-backend-fh5p.onrender.com";
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | SELECT NETWORK
-    |--------------------------------------------------------------------------
-    */
+  /*
+  |--------------------------------------------------------------------------
+  | STATE
+  |--------------------------------------------------------------------------
+  */
 
-    function selectNetwork(
-      element,
-      network
-    ) {
+  let selectedNetwork = null;
+  let selectedBundle = null;
 
+
+  /*
+  |--------------------------------------------------------------------------
+  | SELECT NETWORK
+  |--------------------------------------------------------------------------
+  */
+
+  function selectNetwork(element, network) {
+
+    document
+      .querySelectorAll(".network")
+      .forEach(function(button) {
+        button.classList.remove("selected");
+      });
+
+    element.classList.add("selected");
+
+    selectedNetwork = network;
+
+    document.getElementById(
+      "summaryNetwork"
+    ).textContent = network;
+  }
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | SELECT BUNDLE
+  |--------------------------------------------------------------------------
+  */
+
+  function selectBundle(element, name, price) {
+
+    document
+      .querySelectorAll(".bundle")
+      .forEach(function(bundle) {
+        bundle.classList.remove("selected");
+      });
+
+    element.classList.add("selected");
+
+    selectedBundle = {
+      name: name,
+      price: Number(price)
+    };
+
+    document.getElementById(
+      "summaryBundle"
+    ).textContent = name;
+
+    document.getElementById(
+      "summaryAmount"
+    ).textContent =
+      "₦" + Number(price).toLocaleString();
+  }
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | MESSAGE
+  |--------------------------------------------------------------------------
+  */
+
+  function showMessage(text, type) {
+
+    const message =
+      document.getElementById("message");
+
+    message.textContent = text;
+
+    message.className =
+      "message show " + type;
+  }
+
+
+  function clearMessage() {
+
+    const message =
+      document.getElementById("message");
+
+    message.textContent = "";
+
+    message.className = "message";
+  }
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | BUY DATA
+  |--------------------------------------------------------------------------
+  */
+
+  function buyBundle() {
+
+    clearMessage();
+
+    const email =
       document
-        .querySelectorAll(".network")
-        .forEach(function(button) {
+        .getElementById("email")
+        .value
+        .trim();
 
-          button.classList.remove(
-            "selected"
-          );
+    const phone =
+      document
+        .getElementById("phone")
+        .value
+        .trim();
+
+    const button =
+      document.getElementById("buyButton");
+
+
+    /*
+    | Validate network
+    */
+
+    if (!selectedNetwork) {
+
+      showMessage(
+        "Please select a network first.",
+        "error"
+      );
+
+      return;
+    }
+
+
+    /*
+    | Validate bundle
+    */
+
+    if (!selectedBundle) {
+
+      showMessage(
+        "Please select a data bundle first.",
+        "error"
+      );
+
+      return;
+    }
+
+
+    /*
+    | Validate email
+    */
+
+    if (!email) {
+
+      showMessage(
+        "Please enter your email address.",
+        "error"
+      );
+
+      return;
+    }
+
+
+    /*
+    | Validate phone
+    */
+
+    if (!phone) {
+
+      showMessage(
+        "Please enter the phone number that should receive the data.",
+        "error"
+      );
+
+      return;
+    }
+
+
+    button.disabled = true;
+
+    button.textContent =
+      "Creating order...";
+
+    showMessage(
+      "Creating your NOVA order...",
+      "loading"
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE ORDER
+    |--------------------------------------------------------------------------
+    */
+
+    fetch(
+      BACKEND_URL + "/api/order",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body: JSON.stringify({
+
+          network:
+            selectedNetwork,
+
+          phone:
+            phone,
+
+          bundle:
+            selectedBundle.name,
+
+          price:
+            selectedBundle.price
+
+        })
+      }
+    )
+
+    .then(function(response) {
+
+      return response.json()
+        .then(function(data) {
+
+          return {
+            ok: response.ok,
+            data: data
+          };
 
         });
 
+    })
 
-      element.classList.add(
-        "selected"
+    .then(function(result) {
+
+      if (!result.ok) {
+
+        throw new Error(
+          result.data.error ||
+          "Unable to create order."
+        );
+
+      }
+
+
+      console.log(
+        "NOVA ORDER:",
+        result.data
       );
-
-
-      selectedNetwork =
-        network;
-
-
-      document.getElementById(
-        "summaryNetwork"
-      ).textContent =
-        network;
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | SELECT BUNDLE
-    |--------------------------------------------------------------------------
-    */
-
-    function selectBundle(
-      element,
-      name,
-      price
-    ) {
-
-      document
-        .querySelectorAll(".bundle")
-        .forEach(function(bundle) {
-
-          bundle.classList.remove(
-            "selected"
-          );
-
-        });
-
-
-      element.classList.add(
-        "selected"
-      );
-
-
-      selectedBundle = {
-
-        name: name,
-
-        price: Number(price)
-
-      };
-
-
-      document.getElementById(
-        "summaryBundle"
-      ).textContent =
-        name;
-
-
-      document.getElementById(
-        "summaryAmount"
-      ).textContent =
-        "₦" +
-        Number(price)
-          .toLocaleString();
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | MESSAGE
-    |--------------------------------------------------------------------------
-    */
-
-    function showMessage(
-      text,
-      type
-    ) {
-
-      const message =
-        document.getElementById(
-          "message"
-        );
-
-
-      message.textContent =
-        text;
-
-
-      message.className =
-        "message show " +
-        type;
-
-    }
-
-
-    function clearMessage() {
-
-      const message =
-        document.getElementById(
-          "message"
-        );
-
-
-      message.textContent =
-        "";
-
-
-      message.className =
-        "message";
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | BUY DATA
-    |--------------------------------------------------------------------------
-    */
-
-    async function buyBundle() {
-
-      clearMessage();
-
-
-      const email =
-        document
-          .getElementById("email")
-          .value
-          .trim();
-
-
-      const phone =
-        document
-          .getElementById("phone")
-          .value
-          .trim();
-
-
-      const button =
-        document.getElementById(
-          "buyButton"
-        );
-
-
-      /*
-      | Validate network
-      */
-
-      if (!selectedNetwork) {
-
-        showMessage(
-          "Please select a network first.",
-          "error"
-        );
-
-        return;
-
-      }
-
-
-      /*
-      | Validate bundle
-      */
-
-      if (!selectedBundle) {
-
-        showMessage(
-          "Please select a data bundle first.",
-          "error"
-        );
-
-        return;
-
-      }
-
-
-      /*
-      | Validate email
-      */
-
-      if (!email) {
-
-        showMessage(
-          "Please enter your email address.",
-          "error"
-        );
-
-        return;
-
-      }
-
-
-      /*
-      | Validate phone
-      */
-
-      if (!phone) {
-
-        showMessage(
-          "Please enter the phone number that should receive the data.",
-          "error"
-        );
-
-        return;
-
-      }
-
-
-      button.disabled =
-        true;
-
-
-      button.textContent =
-        "Creating order...";
 
 
       showMessage(
-        "Creating your NOVA order...",
+        result.data.message ||
+        "Order received. Opening payment...",
         "loading"
       );
 
 
-      try {
+      /*
+      |--------------------------------------------------------------------------
+      | CHECK PAYSTACK
+      |--------------------------------------------------------------------------
+      */
 
-        /*
-        |--------------------------------------------------------------------------
-        | CREATE ORDER
-        |
-        | IMPORTANT:
-        | Your real server.js uses:
-        |
-        | POST /api/order
-        |--------------------------------------------------------------------------
-        */
+      if (
+        typeof PaystackPop ===
+        "undefined"
+      ) {
 
-        const orderResponse =
-          await fetch(
-            BACKEND_URL +
-            "/api/order",
-            {
-
-              method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json"
-              },
-
-              body:
-                JSON.stringify({
-
-                  network:
-                    selectedNetwork,
-
-                  phone:
-                    phone,
-
-                  bundle:
-                    selectedBundle.name,
-
-                  price:
-                    selectedBundle.price
-
-                })
-
-            }
-          );
-
-
-        const orderData =
-          await orderResponse.json();
-
-
-        console.log(
-          "NOVA ORDER:",
-          orderData
+        throw new Error(
+          "Paystack could not be loaded. Please check your internet connection."
         );
 
-
-        if (!orderResponse.ok) {
-
-          throw new Error(
-            orderData.error ||
-            "Unable to create order."
-          );
-
-        }
+      }
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | ORDER CREATED
-        |--------------------------------------------------------------------------
-        */
-
-        showMessage(
-          orderData.message ||
-          "Order received. Opening payment...",
-          "loading"
-        );
+      button.textContent =
+        "Opening payment...";
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | PAYSTACK
-        |--------------------------------------------------------------------------
-        */
+      /*
+      |--------------------------------------------------------------------------
+      | PAYSTACK
+      |--------------------------------------------------------------------------
+      */
 
-        if (
-          typeof PaystackPop ===
-          "undefined"
-        ) {
+      const handler =
+        PaystackPop.setup({
 
-          throw new Error(
-            "Paystack could not be loaded. Check your internet connection and try again."
-          );
+          key:
+            PAYSTACK_PUBLIC_KEY,
 
-        }
+          email:
+            email,
 
+          amount:
+            selectedBundle.price * 100,
 
-        button.textContent =
-          "Opening payment...";
-
-
-        const handler =
-          PaystackPop.setup({
-
-            key:
-              PAYSTACK_PUBLIC_KEY,
-
-            email:
-              email,
-
-            amount:
-              selectedBundle.price *
-              100,
-
-            currency:
-              "NGN",
+          currency:
+            "NGN",
 
 
-            /*
-            |--------------------------------------------------------------------------
-            | PAYSTACK SUCCESS
-            |--------------------------------------------------------------------------
-            */
+          /*
+          |--------------------------------------------------------------------------
+          | PAYMENT CALLBACK
+          |--------------------------------------------------------------------------
+          */
 
-            callback:
-              async function(
-                response
-              ) {
+          callback:
+            function(response) {
+
+              console.log(
+                "Paystack reference:",
+                response.reference
+              );
+
+
+              button.disabled = true;
+
+              button.textContent =
+                "Verifying payment...";
+
+
+              showMessage(
+                "Payment received. Verifying...",
+                "loading"
+              );
+
+
+              /*
+              |--------------------------------------------------------------------------
+              | VERIFY PAYMENT
+              |--------------------------------------------------------------------------
+              */
+
+              fetch(
+                BACKEND_URL +
+                "/api/verify-payment/" +
+                encodeURIComponent(
+                  response.reference
+                )
+              )
+
+              .then(function(verifyResponse) {
+
+                return verifyResponse.json()
+                  .then(function(data) {
+
+                    return {
+                      ok:
+                        verifyResponse.ok,
+
+                      data:
+                        data
+                    };
+
+                  });
+
+              })
+
+              .then(function(result) {
 
                 console.log(
-                  "Paystack reference:",
-                  response.reference
+                  "PAYMENT VERIFICATION:",
+                  result.data
                 );
 
 
-                button.disabled =
-                  true;
+                if (!result.ok) {
+
+                  throw new Error(
+                    result.data.error ||
+                    "Payment verification failed."
+                  );
+
+                }
 
 
-                button.textContent =
-                  "Verifying payment...";
+                if (
+                  result.data.status ===
+                  "success"
+                ) {
+
+                  showMessage(
+                    "Payment successful! Your " +
+                    selectedBundle.name +
+                    " data order has been verified.",
+                    "success"
+                  );
+
+
+                  button.textContent =
+                    "Payment Successful";
+
+                  return;
+                }
 
 
                 showMessage(
-                  "Payment received. Verifying...",
-                  "loading"
+                  "Payment could not be confirmed.",
+                  "error"
                 );
 
 
-                try {
-
-                  /*
-                  |--------------------------------------------------------------------------
-                  | YOUR REAL SERVER ROUTE:
-                  |
-                  | GET /api/verify-payment/:reference
-                  |--------------------------------------------------------------------------
-                  */
-
-                  const verifyResponse =
-                    await fetch(
-                      BACKEND_URL +
-                      "/api/verify-payment/" +
-                      encodeURIComponent(
-                        response.reference
-                      )
-                    );
-
-
-                  const verifyData =
-                    await verifyResponse.json();
-
-
-                  console.log(
-                    "PAYMENT VERIFICATION:",
-                    verifyData
-                  );
-
-
-                  if (
-                    !verifyResponse.ok
-                  ) {
-
-                    throw new Error(
-                      verifyData.error ||
-                      "Payment verification failed."
-                    );
-
-                  }
-
-
-                  if (
-                    verifyData.status ===
-                    "success"
-                  ) {
-
-                    showMessage(
-                      "Payment successful! Your " +
-                      selectedBundle.name +
-                      " data order has been verified.",
-                      "success"
-                    );
-
-
-                    button.textContent =
-                      "Payment Successful";
-
-
-                    return;
-
-                  }
-
-
-                  showMessage(
-                    "Payment could not be confirmed.",
-                    "error"
-                  );
-
-
-                  button.disabled =
-                    false;
-
-
-                  button.textContent =
-                    "Buy Data";
-
-                }
-
-                catch(error) {
-
-                  console.error(
-                    "VERIFICATION ERROR:",
-                    error
-                  );
-
-
-                  showMessage(
-                    error.message ||
-                    "Unable to verify your payment.",
-                    "error"
-                  );
-
-
-                  button.disabled =
-                    false;
-
-
-                  button.textContent =
-                    "Buy Data";
-
-                }
-
-              },
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | PAYSTACK CLOSED
-            |--------------------------------------------------------------------------
-            */
-
-            onClose:
-              function() {
-
-                console.log(
-                  "Paystack window closed."
-                );
-
-
-                button.disabled =
-                  false;
-
+                button.disabled = false;
 
                 button.textContent =
                   "Buy Data";
 
+              })
 
-                clearMessage();
+              .catch(function(error) {
 
-              }
-
-          });
-
-
-        handler.openIframe();
-
-      }
+                console.error(
+                  "VERIFICATION ERROR:",
+                  error
+                );
 
 
-      catch(error) {
-
-        console.error(
-          "NOVA ERROR:",
-          error
-        );
-
-
-        showMessage(
-          error.message ||
-          "Something went wrong. Please try again.",
-          "error"
-        );
+                showMessage(
+                  error.message ||
+                  "Unable to verify your payment.",
+                  "error"
+                );
 
 
-        button.disabled =
-          false;
+                button.disabled = false;
+
+                button.textContent =
+                  "Buy Data";
+
+              });
+
+            },
 
 
-        button.textContent =
-          "Buy Data";
+          /*
+          |--------------------------------------------------------------------------
+          | PAYMENT WINDOW CLOSED
+          |--------------------------------------------------------------------------
+          */
 
-      }
+          onClose:
+            function() {
 
-    }
+              console.log(
+                "Paystack window closed."
+              );
 
-  </script>
+
+              button.disabled = false;
+
+              button.textContent =
+                "Buy Data";
+
+
+              clearMessage();
+
+            }
+
+        });
+
+
+      handler.openIframe();
+
+    })
+
+    .catch(function(error) {
+
+      console.error(
+        "NOVA ERROR:",
+        error
+      );
+
+
+      showMessage(
+        error.message ||
+        "Something went wrong. Please try again.",
+        "error"
+      );
+
+
+      button.disabled = false;
+
+      button.textContent =
+        "Buy Data";
+
+    });
+
+  }
+
+                        </script>
 
 </body>
 </html>
