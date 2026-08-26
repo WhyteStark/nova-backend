@@ -275,8 +275,9 @@ app.get(
         `https://www.nellobytesystems.com/APIQueryV1.asp` +
         `?UserID=${encodeURIComponent(userId)}` +
         `&APIKey=${encodeURIComponent(apiKey)}` +
-        `&RequestID=NOVA-TEST-${Date.now()}`;
+        `&ORDERID=NOVA-TEST-${Date.now()}`;
 
+      
       const response =
         await fetch(url);
 
