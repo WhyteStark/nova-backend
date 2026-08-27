@@ -941,3 +941,947 @@ app.post("/api/order", (req, res) => {
 */
 
 
+/*
+|--------------------------------------------------------------------------
+| PART 2 — NOVA API ROUTES
+|--------------------------------------------------------------------------
+*/
+
+
+/*
+|--------------------------------------------------------------------------
+| NETWORK CODES
+|--------------------------------------------------------------------------
+*/
+
+const NETWORK_CODES = {
+  MTN: "01",
+  Glo: "02",
+  "9mobile": "03",
+  Airtel: "04"
+};
+
+
+/*
+|--------------------------------------------------------------------------
+| IN-MEMORY TRANSACTION STORE
+|--------------------------------------------------------------------------
+|
+| This is suitable for testing/MVP.
+| For production, use a real database.
+|--------------------------------------------------------------------------
+*/
+
+const transactions = new Map();
+
+
+/*
+|--------------------------------------------------------------------------
+| GENERATE REQUEST ID
+|--------------------------------------------------------------------------
+*/
+
+function generateRequestId() {
+  return (
+    "NOVA-" +
+    Date.now() +
+    "-" +
+    Math.random()
+      .toString(36)
+      .substring(2, 8)
+      .toUpperCase()
+  );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| FIND PLAN
+|--------------------------------------------------------------------------
+*/
+
+function getPlan(network, planIndex) {
+  if (!DATA_PLANS[network]) {
+    return null;
+  }
+
+  const index = Number(planIndex);
+
+  if (
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= DATA_PLANS[network].length
+  ) {
+    return null;
+  }
+
+  return DATA_PLANS[network][index];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| HOME
+|--------------------------------------------------------------------------
+*/
+
+app.get("/", (req, res) => {
+  res.json({
+    message: "NOVA Data API is running 🚀",
+    version: "3.0.0",
+    service: "NOVA Backend"
+  });
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| HEALTH CHECK
+|--------------------------------------------------------------------------
+*/
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    success: true,
+    status: "online",
+    service: "NOVA Data API",
+    timestamp: new Date().toISOString()
+  });
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| GET NETWORKS
+|--------------------------------------------------------------------------
+*/
+
+app.get("/api/networks", (req, res) => {
+  const networks = Object.keys(NETWORK_CODES).map((name) => ({
+    name,
+    networkId: NETWORK_CODES[name]
+  }));
+
+  res.json({
+    success: true,
+    networks
+  });
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| GET ALL PLANS
+|--------------------------------------------------------------------------
+*/
+
+app.get("/api/plans", (req, res) => {
+  const network = req.query.network;
+
+  if (!network) {
+    return res.json({
+      success: true,
+      plans: DATA_PLANS
+    });
+  }
+
+  if (!DATA_PLANS[network]) {
+    return res.status(404).json({
+      success: false,
+      error: "Network not found"
+    });
+  }
+
+  res.json({
+    success: true,
+    network,
+    networkId: NETWORK_CODES[network],
+    plans: DATA_PLANS[network]
+  });
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| CREATE NOVA ORDER
+|--------------------------------------------------------------------------
+*/
+
+app.post("/api/order", (req, res) => {
+  try {
+    const {
+      network,
+      phone,
+      planIndex
+    } = req.body;
+
+    if (
+      !network ||
+      !phone ||
+      planIndex === undefined
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Network, phone and planIndex are required"
+      });
+    }
+
+    if (!DATA_PLANS[network]) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid network"
+      });
+    }
+
+    const plan = getPlan(network, planIndex);
+
+    if (!plan) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid data plan"
+      });
+    }
+
+    const requestId = generateRequestId();
+
+    const transaction = {
+      requestId,
+      network,
+      networkId: NETWORK_CODES[network],
+      phone,
+      planIndex: Number(planIndex),
+
+      bundle: plan.name,
+      duration: plan.duration,
+
+      price: Number(plan.price),
+      cost: Number(plan.cost),
+
+      productCode: plan.productCode,
+      productId: plan.productId,
+
+      status: "pending",
+      paymentStatus: "unpaid",
+      deliveryStatus: "pending",
+
+      paymentReference: null,
+      clubKonnectOrderId: null,
+
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    transactions.set(requestId, transaction);
+
+    console.log(
+      "NOVA ORDER CREATED:",
+      transaction
+    );
+
+    return res.json({
+      success: true,
+      message: "Order created successfully",
+      order: transaction
+    });
+
+  } catch (error) {
+    console.error(
+      "CREATE ORDER ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: "Unable to create order"
+    });
+  }
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| PAYSTACK PAYMENT VERIFICATION
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/api/verify-payment/:reference",
+  async (req, res) => {
+    try {
+      const reference = req.params.reference;
+
+      if (!reference) {
+        return res.status(400).json({
+          success: false,
+          error: "Payment reference is required"
+        });
+      }
+
+      if (!PAYSTACK_SECRET_KEY) {
+        return res.status(500).json({
+          success: false,
+          error: "Paystack secret key is not configured"
+        });
+      }
+
+      const response = await fetch(
+        "https://api.paystack.co/transaction/verify/" +
+        encodeURIComponent(reference),
+        {
+          method: "GET",
+          headers: {
+            Authorization:
+              "Bearer " + PAYSTACK_SECRET_KEY,
+
+            "Content-Type":
+              "application/json"
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          success: false,
+          error:
+            data.message ||
+            "Paystack verification failed"
+        });
+      }
+
+      const transaction = data.data;
+
+      const paid =
+        transaction &&
+        transaction.status === "success";
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND NOVA TRANSACTION BY PAYMENT REFERENCE
+      |--------------------------------------------------------------------------
+      */
+
+      let novaTransaction = null;
+
+      for (const item of transactions.values()) {
+        if (
+          item.paymentReference === reference
+        ) {
+          novaTransaction = item;
+          break;
+        }
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE NOVA TRANSACTION
+      |--------------------------------------------------------------------------
+      */
+
+      if (novaTransaction) {
+        novaTransaction.paymentStatus =
+          paid ? "paid" : "failed";
+
+        novaTransaction.status =
+          paid ? "paid" : "payment_failed";
+
+        novaTransaction.updatedAt =
+          new Date().toISOString();
+
+        transactions.set(
+          novaTransaction.requestId,
+          novaTransaction
+        );
+      }
+
+      return res.json({
+        success: true,
+
+        paid,
+
+        status:
+          transaction?.status || null,
+
+        reference:
+          transaction?.reference || reference,
+
+        amount:
+          transaction?.amount || null,
+
+        currency:
+          transaction?.currency || null,
+
+        customer:
+          transaction?.customer || null,
+
+        novaOrder:
+          novaTransaction || null
+      });
+
+    } catch (error) {
+      console.error(
+        "PAYSTACK VERIFY ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: "Unable to verify payment"
+      });
+    }
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| ATTACH PAYSTACK REFERENCE TO NOVA ORDER
+|--------------------------------------------------------------------------
+|
+| Frontend should call this after creating the Paystack payment.
+|--------------------------------------------------------------------------
+*/
+
+app.post(
+  "/api/payment-reference",
+  (req, res) => {
+    try {
+      const {
+        requestId,
+        reference
+      } = req.body;
+
+      if (!requestId || !reference) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "requestId and reference are required"
+        });
+      }
+
+      const transaction =
+        transactions.get(requestId);
+
+      if (!transaction) {
+        return res.status(404).json({
+          success: false,
+          error: "NOVA order not found"
+        });
+      }
+
+      transaction.paymentReference =
+        String(reference);
+
+      transaction.updatedAt =
+        new Date().toISOString();
+
+      transactions.set(
+        requestId,
+        transaction
+      );
+
+      return res.json({
+        success: true,
+        message:
+          "Payment reference saved",
+        requestId,
+        reference
+      });
+
+    } catch (error) {
+      console.error(
+        "PAYMENT REFERENCE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to save payment reference"
+      });
+    }
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| DELIVER DATA THROUGH CLUBKONNECT
+|--------------------------------------------------------------------------
+*/
+
+app.post(
+  "/api/deliver",
+  async (req, res) => {
+    try {
+      const {
+        network,
+        phone,
+        planIndex,
+        requestId
+      } = req.body;
+
+      if (
+        !network ||
+        !phone ||
+        planIndex === undefined
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Network, phone and planIndex are required"
+        });
+      }
+
+      if (!DATA_PLANS[network]) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid network"
+        });
+      }
+
+      if (
+        !CLUBKONNECT_USERID ||
+        !CLUBKONNECT_APIKEY
+      ) {
+        return res.status(500).json({
+          success: false,
+          error:
+            "ClubKonnect credentials are missing"
+        });
+      }
+
+      const plan =
+        getPlan(network, planIndex);
+
+      if (!plan) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid data plan"
+        });
+      }
+
+      const finalRequestId =
+        requestId || generateRequestId();
+
+      /*
+      |--------------------------------------------------------------------------
+      | IF NOVA ORDER EXISTS, UPDATE IT
+      |--------------------------------------------------------------------------
+      */
+
+      let novaTransaction =
+        transactions.get(finalRequestId);
+
+      if (novaTransaction) {
+        novaTransaction.deliveryStatus =
+          "processing";
+
+        novaTransaction.status =
+          "delivery_processing";
+
+        novaTransaction.updatedAt =
+          new Date().toISOString();
+
+        transactions.set(
+          finalRequestId,
+          novaTransaction
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | CLUBKONNECT URL
+      |--------------------------------------------------------------------------
+      */
+
+      let url =
+        "https://www.nellobytesystems.com/" +
+        "APIDatabundleV1.asp" +
+
+        "?UserID=" +
+        encodeURIComponent(
+          CLUBKONNECT_USERID
+        ) +
+
+        "&APIKey=" +
+        encodeURIComponent(
+          CLUBKONNECT_APIKEY
+        ) +
+
+        "&MobileNetwork=" +
+        encodeURIComponent(
+          NETWORK_CODES[network]
+        ) +
+
+        "&DataPlan=" +
+        encodeURIComponent(
+          plan.productCode
+        ) +
+
+        "&MobileNumber=" +
+        encodeURIComponent(
+          phone
+        ) +
+
+        "&RequestID=" +
+        encodeURIComponent(
+          finalRequestId
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | CALLBACK URL
+      |--------------------------------------------------------------------------
+      */
+
+      const callbackUrl =
+        process.env.NOVA_CALLBACK_URL;
+
+      if (callbackUrl) {
+        url +=
+          "&CallBackURL=" +
+          encodeURIComponent(
+            callbackUrl
+          );
+      }
+
+      console.log(
+        "CLUBKONNECT DELIVERY REQUEST:",
+        {
+          requestId:
+            finalRequestId,
+
+          network,
+
+          networkId:
+            NETWORK_CODES[network],
+
+          phone,
+
+          productCode:
+            plan.productCode
+        }
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | SEND REQUEST
+      |--------------------------------------------------------------------------
+      */
+
+      const response =
+        await fetch(url);
+
+      const raw =
+        await response.text();
+
+      let data;
+
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = {
+          raw
+        };
+      }
+
+      console.log(
+        "CLUBKONNECT RESPONSE:",
+        data
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | DETERMINE RESULT
+      |--------------------------------------------------------------------------
+      */
+
+      let deliveryStatus =
+        "processing";
+
+      const responseText =
+        JSON.stringify(data)
+          .toLowerCase();
+
+      if (
+        responseText.includes("success") &&
+        !responseText.includes("failed")
+      ) {
+        deliveryStatus =
+          "successful";
+      }
+
+      if (
+        responseText.includes("failed") ||
+        responseText.includes("error")
+      ) {
+        deliveryStatus =
+          "failed";
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE TRANSACTION
+      |--------------------------------------------------------------------------
+      */
+
+      if (novaTransaction) {
+        novaTransaction.deliveryStatus =
+          deliveryStatus;
+
+        novaTransaction.status =
+          deliveryStatus === "successful"
+            ? "completed"
+            : deliveryStatus === "failed"
+              ? "delivery_failed"
+              : "delivery_processing";
+
+        novaTransaction.updatedAt =
+          new Date().toISOString();
+
+        /*
+        |--------------------------------------------------------------------------
+        | TRY TO SAVE CLUBKONNECT ORDER ID
+        |--------------------------------------------------------------------------
+        */
+
+        if (data && typeof data === "object") {
+          novaTransaction.clubKonnectOrderId =
+            data.OrderID ||
+            data.orderId ||
+            data.ORDERID ||
+            data.order_id ||
+            null;
+        }
+
+        transactions.set(
+          finalRequestId,
+          novaTransaction
+        );
+      }
+
+      return res.status(
+        response.ok ? 200 : response.status
+      ).json({
+        success: response.ok,
+
+        message:
+          "ClubKonnect request processed",
+
+        requestId:
+          finalRequestId,
+
+        network,
+
+        bundle:
+          plan.name,
+
+        duration:
+          plan.duration,
+
+        deliveryStatus,
+
+        response: data
+      });
+
+    } catch (error) {
+      console.error(
+        "CLUBKONNECT DELIVERY ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to process data delivery"
+      });
+    }
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| QUERY CLUBKONNECT TRANSACTION
+|--------------------------------------------------------------------------
+|
+| Supports:
+|
+| /api/query?orderId=XXXXX
+|
+| OR
+|
+| /api/query?requestId=NOVA-XXXXX
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/api/query",
+  async (req, res) => {
+    try {
+      const {
+        orderId,
+        requestId
+      } = req.query;
+
+      if (!orderId && !requestId) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Provide orderId or requestId"
+        });
+      }
+
+      if (
+        !CLUBKONNECT_USERID ||
+        !CLUBKONNECT_APIKEY
+      ) {
+        return res.status(500).json({
+          success: false,
+          error:
+            "ClubKonnect credentials are missing"
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | LOCAL NOVA TRANSACTION
+      |--------------------------------------------------------------------------
+      */
+
+      let localTransaction = null;
+
+      if (requestId) {
+        localTransaction =
+          transactions.get(requestId) ||
+          null;
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | CLUBKONNECT QUERY
+      |--------------------------------------------------------------------------
+      */
+
+      let queryUrl =
+        "https://www.nellobytesystems.com/" +
+        "APIQueryV1.asp" +
+
+        "?UserID=" +
+        encodeURIComponent(
+          CLUBKONNECT_USERID
+        ) +
+
+        "&APIKey=" +
+        encodeURIComponent(
+          CLUBKONNECT_APIKEY
+        );
+
+      if (orderId) {
+        queryUrl +=
+          "&OrderID=" +
+          encodeURIComponent(
+            orderId
+          );
+      } else {
+        queryUrl +=
+          "&RequestID=" +
+          encodeURIComponent(
+            requestId
+          );
+      }
+
+      console.log(
+        "CLUBKONNECT QUERY:",
+        queryUrl.replace(
+          CLUBKONNECT_APIKEY,
+          "***"
+        )
+      );
+
+      const response =
+        await fetch(queryUrl);
+
+      const raw =
+        await response.text();
+
+      let data;
+
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = {
+          raw
+        };
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE LOCAL TRANSACTION
+      |--------------------------------------------------------------------------
+      */
+
+      if (localTransaction) {
+        const responseText =
+          JSON.stringify(data)
+            .toLowerCase();
+
+        if (
+          responseText.includes("success")
+        ) {
+          localTransaction.deliveryStatus =
+            "successful";
+
+          localTransaction.status =
+            "completed";
+        }
+
+        if (
+          responseText.includes("failed")
+        ) {
+          localTransaction.deliveryStatus =
+            "failed";
+
+          localTransaction.status =
+            "delivery_failed";
+        }
+
+        localTransaction.updatedAt =
+          new Date().toISOString();
+
+        transactions.set(
+          requestId,
+          localTransaction
+        );
+      }
+
+      return res.status(
+        response.ok ? 200 : response.status
+      ).json({
+        success: response.ok,
+
+        requestId:
+          requestId || null,
+
+        orderId:
+          orderId || null,
+
+        transaction:
+          localTransaction,
+
+        response:
+          data
+      });
+
+    } catch (error) {
+      console.error(
+        "QUERY ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to query trans
