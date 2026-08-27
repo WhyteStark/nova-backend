@@ -1276,4 +1276,187 @@ app.get(
           success: false,
 
           error:
-            "ClubKonnect cred
+            "ClubKonnect credentials are missing"
+
+        });
+
+      }
+
+
+      let url =
+        "https://www.nellobytesystems.com/APIQueryV1.asp" +
+        "?UserID=" +
+        encodeURIComponent(CLUBKONNECT_USERID) +
+        "&APIKey=" +
+        encodeURIComponent(CLUBKONNECT_APIKEY);
+
+
+      if (orderId) {
+
+        url +=
+          "&OrderID=" +
+          encodeURIComponent(orderId);
+
+      }
+
+      else if (requestId) {
+
+        url +=
+          "&RequestID=" +
+          encodeURIComponent(requestId);
+
+      }
+
+
+      console.log(
+        "CLUBKONNECT QUERY:",
+        {
+          orderId,
+          requestId
+        }
+      );
+
+
+      const response =
+        await fetch(url);
+
+
+      const raw =
+        await response.text();
+
+
+      let data;
+
+      try {
+
+        data =
+          JSON.parse(raw);
+
+      }
+
+      catch {
+
+        data = {
+          raw
+        };
+
+      }
+
+
+      console.log(
+        "CLUBKONNECT QUERY RESPONSE:",
+        data
+      );
+
+
+      res.status(
+        response.ok ? 200 : response.status
+      ).json({
+
+        success:
+          response.ok,
+
+        query: {
+          orderId:
+            orderId || null,
+
+          requestId:
+            requestId || null
+        },
+
+        response:
+          data
+
+      });
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "CLUBKONNECT QUERY ERROR:",
+        error
+      );
+
+
+      res.status(500).json({
+
+        success: false,
+
+        error:
+          "Unable to query ClubKonnect transaction"
+
+      });
+
+    }
+
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| CLUBKONNECT CALLBACK
+|--------------------------------------------------------------------------
+*/
+
+app.post(
+  "/api/clubkonnect-callback",
+  (req, res) => {
+
+    console.log(
+      "CLUBKONNECT CALLBACK:",
+      req.body
+    );
+
+    res.json({
+      success: true,
+      received: true
+    });
+
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| 404 HANDLER
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  (req, res) => {
+
+    res.status(404).json({
+
+      success: false,
+
+      error:
+        "Endpoint not found",
+
+      path:
+        req.originalUrl
+
+    });
+
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| START SERVER
+|--------------------------------------------------------------------------
+*/
+
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+
+    console.log(
+      `NOVA backend running on port ${PORT}`
+    );
+
+  }
+);
