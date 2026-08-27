@@ -1,975 +1,479 @@
-const express = require("express");
-const cors = require("cors");
 
-const app = express();
 
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-/*
-|--------------------------------------------------------------------------
-| CONFIGURATION
-|--------------------------------------------------------------------------
-*/
-
-const PAYSTACK_SECRET_KEY =
-  process.env.PAYSTACK_SECRET_KEY;
-
-const CLUBKONNECT_USERID =
-  process.env.CLUBKONNECT_USERID;
-
-const CLUBKONNECT_APIKEY =
-  process.env.CLUBKONNECT_APIKEY;
 
 
 /*
 |--------------------------------------------------------------------------
-| NOVA DATA CATALOGUE
-|--------------------------------------------------------------------------
-|
-| price = what NOVA charges the customer
-| productCode = ClubKonnect PRODUCT_CODE
-| networkId = ClubKonnect NETWORK_ID
-|
-| The backend is the source of truth.
+| DELIVER ORDER TO CLUBKONNECT
 |--------------------------------------------------------------------------
 */
 
-const DATA_PLANS = {
+async function deliverOrder(order) {
 
-  MTN: [
+  if (!order) {
 
-    {
-      name: "500MB",
-      duration: "7 days",
-      price: 350,
-      productCode: "2",
-      productId: "500",
-      cost: 307
-    },
+    throw new Error(
+      "Order is required"
+    );
 
-    {
-      name: "1GB",
-      duration: "7 days",
-      price: 500,
-      productCode: "4",
-      productId: "1000",
-      cost: 410
-    },
+  }
 
-    {
-      name: "2GB",
-      duration: "7 days",
-      price: 950,
-      productCode: "5",
-      productId: "2000",
-      cost: 820
-    },
 
-    {
-      name: "3GB",
-      duration: "7 days",
-      price: 1400,
-      productCode: "6",
-      productId: "3000",
-      cost: 1230
-    },
+  if (
+    order.deliveryStatus ===
+    "delivered"
+  ) {
 
-    {
-      name: "5GB",
-      duration: "7 days",
-      price: 2300,
-      productCode: "8",
-      productId: "5000",
-      cost: 2050
-    },
+    return order;
 
-    {
-      name: "1GB",
-      duration: "30 days",
-      price: 650,
-      productCode: "10",
-      productId: "1000.00",
-      cost: 563
-    },
+  }
 
-    {
-      name: "2GB",
-      duration: "30 days",
-      price: 1250,
-      productCode: "11",
-      productId: "2000.00",
-      cost: 1117
-    },
 
-    {
-      name: "3GB",
-      duration: "30 days",
-      price: 1800,
-      productCode: "12",
-      productId: "3000.00",
-      cost: 1629
-    },
+  if (
+    !CLUBKONNECT_USERID ||
+    !CLUBKONNECT_APIKEY
+  ) {
 
-    {
-      name: "5GB",
-      duration: "30 days",
-      price: 2750,
-      productCode: "13",
-      productId: "5000.00",
-      cost: 2511
-    },
+    order.deliveryStatus =
+      "delivery_error";
 
-    {
-      name: "7GB",
-      duration: "30 days",
-      price: 3800,
-      productCode: "26",
-      productId: "3500.02",
-      cost: 3395
-    },
+    order.deliveryMessage =
+      "ClubKonnect credentials are missing";
 
-    {
-      name: "10GB",
-      duration: "30 days",
-      price: 4900,
-      productCode: "27",
-      productId: "4500.01",
-      cost: 4365
-    },
+    order.updatedAt =
+      new Date().toISOString();
 
-    {
-      name: "12.5GB",
-      duration: "30 days",
-      price: 6000,
-      productCode: "28",
-      productId: "5500.01",
-      cost: 5335
-    },
+    ORDERS.set(
+      order.requestId,
+      order
+    );
 
-    {
-      name: "16.5GB",
-      duration: "30 days",
-      price: 7100,
-      productCode: "29",
-      productId: "6500.01",
-      cost: 6305
-    },
+    throw new Error(
+      "ClubKonnect credentials are missing"
+    );
 
-    {
-      name: "20GB",
-      duration: "30 days",
-      price: 8200,
-      productCode: "30",
-      productId: "7500.01",
-      cost: 7275
-    },
+  }
 
-    {
-      name: "25GB",
-      duration: "30 days",
-      price: 9900,
-      productCode: "31",
-      productId: "9000.01",
-      cost: 8730
-    },
 
-    {
-      name: "20GB",
-      duration: "7 days",
-      price: 5500,
-      productCode: "36",
-      productId: "5000.01",
-      cost: 4850
-    }
+  const plan =
+    getPlan(
+      order.network,
+      order.planIndex
+    );
 
-  ],
 
+  if (!plan) {
 
-  Glo: [
+    throw new Error(
+      "Data plan no longer exists"
+    );
 
-    {
-      name: "200MB",
-      duration: "14 days",
-      price: 150,
-      productCode: "1",
-      productId: "200",
-      cost: 94
-    },
+  }
 
-    {
-      name: "500MB",
-      duration: "7 days",
-      price: 300,
-      productCode: "2",
-      productId: "500",
-      cost: 230
-    },
 
-    {
-      name: "1GB",
-      duration: "3 days",
-      price: 500,
-      productCode: "8",
-      productId: "1000.11",
-      cost: 392
-    },
+  order.deliveryStatus =
+    "processing";
 
-    {
-      name: "3GB",
-      duration: "3 days",
-      price: 1400,
-      productCode: "9",
-      productId: "3000.11",
-      cost: 1176
-    },
+  order.status =
+    "delivery_processing";
 
-    {
-      name: "5GB",
-      duration: "3 days",
-      price: 2300,
-      productCode: "10",
-      productId: "5000.11",
-      cost: 1960
-    },
+  order.updatedAt =
+    new Date().toISOString();
 
-    {
-      name: "1GB",
-      duration: "30 days",
-      price: 550,
-      productCode: "3",
-      productId: "1000",
-      cost: 461
-    },
-
-    {
-      name: "2GB",
-      duration: "30 days",
-      price: 1050,
-      productCode: "4",
-      productId: "2000",
-      cost: 922
-    },
-
-    {
-      name: "3GB",
-      duration: "30 days",
-      price: 1600,
-      productCode: "5",
-      productId: "3000",
-      cost: 1383
-    },
-
-    {
-      name: "5GB",
-      duration: "30 days",
-      price: 2600,
-      productCode: "6",
-      productId: "5000",
-      cost: 2306
-    },
-
-    {
-      name: "10GB",
-      duration: "30 days",
-      price: 3500,
-      productCode: "7",
-      productId: "10000",
-      cost: 4612
-    },
-
-    {
-      name: "7.5GB",
-      duration: "30 days",
-      price: 3000,
-      productCode: "20",
-      productId: "2500.01",
-      cost: 2425
-    },
-
-    {
-      name: "12.5GB",
-      duration: "30 days",
-      price: 4500,
-      productCode: "22",
-      productId: "4000.01",
-      cost: 3880
-    },
-
-    {
-      name: "16GB",
-      duration: "30 days",
-      price: 5500,
-      productCode: "23",
-      productId: "5000.01",
-      cost: 4850
-    },
-
-    {
-      name: "28GB",
-      duration: "30 days",
-      price: 8500,
-      productCode: "24",
-      productId: "8000.01",
-      cost: 7760
-    }
-
-  ],
-
-
-  Airtel: [
-
-    {
-      name: "1GB",
-      duration: "1 day",
-      price: 550,
-      productCode: "14",
-      productId: "499.91",
-      cost: 484.91
-    },
-
-    {
-      name: "1.5GB",
-      duration: "2 days",
-      price: 650,
-      productCode: "15",
-      productId: "599.91",
-      cost: 581.91
-    },
-
-    {
-      name: "2GB",
-      duration: "2 days",
-      price: 800,
-      productCode: "16",
-      productId: "749.91",
-      cost: 727.41
-    },
-
-    {
-      name: "3GB",
-      duration: "2 days",
-      price: 1050,
-      productCode: "17",
-      productId: "999.91",
-      cost: 969.91
-    },
-
-    {
-      name: "5GB",
-      duration: "2 days",
-      price: 1600,
-      productCode: "18",
-      productId: "1499.91",
-      cost: 1454.91
-    },
-
-    {
-      name: "500MB",
-      duration: "7 days",
-      price: 550,
-      productCode: "19",
-      productId: "499.92",
-      cost: 484.92
-    },
-
-    {
-      name: "1GB",
-      duration: "7 days",
-      price: 900,
-      productCode: "20",
-      productId: "799.91",
-      cost: 775.91
-    },
-
-    {
-      name: "1.5GB",
-      duration: "7 days",
-      price: 1100,
-      productCode: "21",
-      productId: "999.92",
-      cost: 969.92
-    },
-
-    {
-      name: "3.5GB",
-      duration: "7 days",
-      price: 1650,
-      productCode: "22",
-      productId: "1499.92",
-      cost: 1454.92
-    },
-
-    {
-      name: "6GB",
-      duration: "7 days",
-      price: 2750,
-      productCode: "23",
-      productId: "2499.91",
-      cost: 2424.91
-    },
-
-    {
-      name: "10GB",
-      duration: "7 days",
-      price: 3300,
-      productCode: "24",
-      productId: "2999.91",
-      cost: 2909.91
-    },
-
-    {
-      name: "18GB",
-      duration: "7 days",
-      price: 5500,
-      productCode: "25",
-      productId: "4999.91",
-      cost: 4849.91
-    },
-
-    {
-      name: "2GB",
-      duration: "30 days",
-      price: 1650,
-      productCode: "26",
-      productId: "1499.93",
-      cost: 1454.93
-    },
-
-    {
-      name: "3GB",
-      duration: "30 days",
-      price: 2200,
-      productCode: "27",
-      productId: "1999.91",
-      cost: 1939.91
-    },
-
-    {
-      name: "4GB",
-      duration: "30 days",
-      price: 2750,
-      productCode: "28",
-      productId: "2499.92",
-      cost: 2424.92
-    },
-
-    {
-      name: "8GB",
-      duration: "30 days",
-      price: 3300,
-      productCode: "29",
-      productId: "2999.92",
-      cost: 2909.92
-    },
-
-    {
-      name: "10GB",
-      duration: "30 days",
-      price: 4300,
-      productCode: "30",
-      productId: "3999.91",
-      cost: 3879.91
-    },
-
-    {
-      name: "13GB",
-      duration: "30 days",
-      price: 5300,
-      productCode: "31",
-      productId: "4999.92",
-      cost: 4849.92
-    },
-
-    {
-      name: "18GB",
-      duration: "30 days",
-      price: 6300,
-      productCode: "32",
-      productId: "5999.91",
-      cost: 5819.91
-    },
-
-    {
-      name: "25GB",
-      duration: "30 days",
-      price: 8200,
-      productCode: "33",
-      productId: "7999.91",
-      cost: 7759.91
-    }
-
-  ],
-
-
-  "9mobile": [
-
-    {
-      name: "50MB",
-      duration: "30 days",
-      price: 100,
-      productCode: "1",
-      productId: "50",
-      cost: 25
-    },
-
-    {
-      name: "100MB",
-      duration: "30 days",
-      price: 150,
-      productCode: "2",
-      productId: "100",
-      cost: 51
-    },
-
-    {
-      name: "300MB",
-      duration: "30 days",
-      price: 200,
-      productCode: "3",
-      productId: "300",
-      cost: 153
-    },
-
-    {
-      name: "500MB",
-      duration: "30 days",
-      price: 300,
-      productCode: "4",
-      productId: "500",
-      cost: 246
-    },
-
-    {
-      name: "1GB",
-      duration: "30 days",
-      price: 600,
-      productCode: "5",
-      productId: "1000",
-      cost: 492
-    },
-
-    {
-      name: "2GB",
-      duration: "30 days",
-      price: 1150,
-      productCode: "6",
-      productId: "2000",
-      cost: 984
-    },
-
-    {
-      name: "3GB",
-      duration: "30 days",
-      price: 1700,
-      productCode: "7",
-      productId: "3000",
-      cost: 1476
-    },
-
-    {
-      name: "4GB",
-      duration: "30 days",
-      price: 2200,
-      productCode: "8",
-      productId: "4000",
-      cost: 1968
-    },
-
-    {
-      name: "5GB",
-      duration: "30 days",
-      price: 2800,
-      productCode: "9",
-      productId: "5000",
-      cost: 2460
-    },
-
-    {
-      name: "10GB",
-      duration: "30 days",
-      price: 5500,
-      productCode: "10",
-      productId: "10000",
-      cost: 4920
-    },
-
-    {
-      name: "15GB",
-      duration: "30 days",
-      price: 7900,
-      productCode: "11",
-      productId: "15000",
-      cost: 7380
-    },
-
-    {
-      name: "20GB",
-      duration: "30 days",
-      price: 10500,
-      productCode: "12",
-      productId: "20000",
-      cost: 9840
-    },
-
-    {
-      name: "25GB",
-      duration: "30 days",
-      price: 13000,
-      productCode: "13",
-      productId: "25000",
-      cost: 12300
-    }
-
-  ]
-
-};
-
-
-/*
-|--------------------------------------------------------------------------
-| NETWORK CODES
-|--------------------------------------------------------------------------
-*/
-
-const NETWORK_CODES = {
-  MTN: "01",
-  Glo: "02",
-  "9mobile": "03",
-  Airtel: "04"
-};
-
-
-/*
-|--------------------------------------------------------------------------
-| HOME
-|--------------------------------------------------------------------------
-*/
-
-app.get("/", (req, res) => {
-
-  res.json({
-    message: "NOVA Data API is running 🚀",
-    version: "2.0.0"
-  });
-
-});
-
-
-/*
-|--------------------------------------------------------------------------
-| HEALTH CHECK
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/health", (req, res) => {
-
-  res.json({
-    success: true,
-    status: "online",
-    service: "NOVA Data API"
-  });
-
-});
-
-
-/*
-|--------------------------------------------------------------------------
-| GET NETWORKS
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/networks", (req, res) => {
-
-  const networks = Object.keys(NETWORK_CODES).map(
-    (name) => ({
-      name,
-      networkId: NETWORK_CODES[name]
-    })
+  ORDERS.set(
+    order.requestId,
+    order
   );
 
-  res.json({
-    success: true,
-    networks
-  });
 
-});
+  const url =
+    "https://www.nellobytesystems.com/APIDatabundleV1.asp" +
 
+    "?UserID=" +
+    encodeURIComponent(
+      CLUBKONNECT_USERID
+    ) +
 
-/*
-|--------------------------------------------------------------------------
-| GET DATA PLANS
-|--------------------------------------------------------------------------
-*/
+    "&APIKey=" +
+    encodeURIComponent(
+      CLUBKONNECT_APIKEY
+    ) +
 
-app.get("/api/plans", (req, res) => {
+    "&MobileNetwork=" +
+    encodeURIComponent(
+      NETWORK_CODES[order.network]
+    ) +
 
-  const network = req.query.network;
+    "&DataPlan=" +
+    encodeURIComponent(
+      plan.productCode
+    ) +
 
-  if (!network) {
+    "&MobileNumber=" +
+    encodeURIComponent(
+      order.phone
+    ) +
 
-    return res.json({
-      success: true,
-      plans: DATA_PLANS
-    });
+    "&RequestID=" +
+    encodeURIComponent(
+      order.requestId
+    ) +
 
-  }
-
-  if (!DATA_PLANS[network]) {
-
-    return res.status(404).json({
-      success: false,
-      error: "Network not found"
-    });
-
-  }
-
-  res.json({
-    success: true,
-    network,
-    networkId: NETWORK_CODES[network],
-    plans: DATA_PLANS[network]
-  });
-
-});
+    "&CallBackURL=" +
+    encodeURIComponent(
+      NOVA_CALLBACK_URL
+    );
 
 
-/*
-|--------------------------------------------------------------------------
-| CREATE ORDER
-|--------------------------------------------------------------------------
-*/
+  console.log(
+    "CLUBKONNECT DELIVERY REQUEST:",
+    {
 
-app.post("/api/order", (req, res) => {
+      requestId:
+        order.requestId,
 
-  try {
-
-    const {
-      network,
-      phone,
-      planIndex
-    } = req.body;
-
-
-    if (!network || !phone || planIndex === undefined) {
-
-      return res.status(400).json({
-        success: false,
-        error: "Network, phone and planIndex are required"
-      });
-
-    }
-
-
-    if (!DATA_PLANS[network]) {
-
-      return res.status(400).json({
-        success: false,
-        error: "Invalid network"
-      });
-
-    }
-
-
-    const index = Number(planIndex);
-
-    if (
-      !Number.isInteger(index) ||
-      !DATA_PLANS[network][index]
-    ) {
-
-      return res.status(400).json({
-        success: false,
-        error: "Invalid data plan"
-      });
-
-    }
-
-
-    const plan =
-      DATA_PLANS[network][index];
-
-
-    const requestId =
-      "NOVA-" +
-      Date.now() +
-      "-" +
-      Math.random()
-        .toString(36)
-        .substring(2, 8)
-        .toUpperCase();
-
-
-    const order = {
-
-      requestId,
-
-      network,
+      network:
+        order.network,
 
       networkId:
-        NETWORK_CODES[network],
+        NETWORK_CODES[order.network],
 
-      phone,
-
-      bundle:
-        plan.name,
-
-      duration:
-        plan.duration,
-
-      price:
-        plan.price,
+      phone:
+        order.phone,
 
       productCode:
         plan.productCode,
 
       productId:
-        plan.productId,
+        plan.productId
 
-      status:
-        "pending",
+    }
+  );
 
-      createdAt:
-        new Date().toISOString()
 
+  const response =
+    await fetch(url);
+
+
+  const raw =
+    await response.text();
+
+
+  let data;
+
+
+  try {
+
+    data =
+      JSON.parse(raw);
+
+  }
+
+  catch {
+
+    data = {
+      raw
     };
 
-
-    console.log(
-      "NOVA ORDER CREATED:",
-      order
-    );
+  }
 
 
-    res.json({
+  console.log(
+    "CLUBKONNECT DELIVERY RESPONSE:",
+    data
+  );
 
-      success: true,
 
-      message:
-        "Order created successfully",
+  /*
+   * Different supplier responses may use different
+   * field names, so we inspect the common ones.
+   */
 
-      order
+  const supplierStatus =
+    String(
+      data?.status ??
+      data?.Status ??
+      data?.statuscode ??
+      data?.StatusCode ??
+      ""
+    ).toLowerCase();
 
-    });
+
+  const supplierOrderId =
+    data?.orderid ??
+    data?.OrderID ??
+    data?.orderId ??
+    null;
+
+
+  order.supplierOrderId =
+    supplierOrderId;
+
+
+  order.supplierResponse =
+    data;
+
+
+  /*
+   * We do NOT automatically call every response "delivered".
+   *
+   * If ClubKonnect accepts the request, we mark it processing.
+   * The callback/query endpoint will update the final state.
+   */
+
+  if (!response.ok) {
+
+    order.deliveryStatus =
+      "delivery_error";
+
+    order.status =
+      "delivery_failed";
+
+    order.deliveryMessage =
+      "ClubKonnect HTTP request failed";
 
   }
 
-  catch (error) {
+  else {
 
-    console.error(
-      "ORDER ERROR:",
-      error
-    );
+    order.deliveryStatus =
+      "processing";
 
-    res.status(500).json({
-
-      success: false,
-
-      error:
-        "Unable to create order"
-
-    });
+    order.status =
+      "delivery_processing";
 
   }
 
-});
+
+  /*
+   * Some supplier responses may explicitly indicate success.
+   */
+
+  if (
+    supplierStatus === "success" ||
+    supplierStatus === "successful" ||
+    supplierStatus === "completed" ||
+    supplierStatus === "delivered"
+  ) {
+
+    order.deliveryStatus =
+      "delivered";
+
+    order.status =
+      "completed";
+
+    order.deliveredAt =
+      new Date().toISOString();
+
+  }
+
+
+  order.updatedAt =
+    new Date().toISOString();
+
+
+  ORDERS.set(
+    order.requestId,
+    order
+  );
+
+
+  return order;
+
+}
 
 
 /*
 |--------------------------------------------------------------------------
-| PAYSTACK VERIFY
+| MANUAL DELIVERY ENDPOINT
+|--------------------------------------------------------------------------
+|
+| This endpoint is protected by Paystack verification.
+| The frontend should send:
+|
+| {
+|   "requestId": "NOVA-...",
+|   "reference": "NOVA-..."
+| }
+|
 |--------------------------------------------------------------------------
 */
 
-app.get(
-  "/api/verify-payment/:reference",
+app.post(
+  "/api/deliver",
   async (req, res) => {
 
     try {
 
-      const reference =
-        req.params.reference;
+      const {
+        requestId,
+        reference
+      } = req.body;
 
 
-      if (!PAYSTACK_SECRET_KEY) {
+      if (
+        !requestId ||
+        !reference
+      ) {
 
-        return res.status(500).json({
+        return res.status(400).json({
 
           success: false,
 
           error:
-            "Paystack secret key is not configured"
+            "requestId and reference are required"
 
         });
 
       }
 
 
-      const response =
-        await fetch(
-          "https://api.paystack.co/transaction/verify/" +
-          encodeURIComponent(reference),
-          {
+      const order =
+        ORDERS.get(requestId);
 
-            method: "GET",
 
-            headers: {
+      if (!order) {
 
-              Authorization:
-                `Bearer ${PAYSTACK_SECRET_KEY}`,
+        return res.status(404).json({
 
-              "Content-Type":
-                "application/json"
+          success: false,
 
-            }
+          error:
+            "Order not found"
 
-          }
+        });
+
+      }
+
+
+      if (
+        order.requestId !==
+        reference
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Payment reference does not match order"
+
+        });
+
+      }
+
+
+      /*
+       * Verify directly with Paystack.
+       * Never trust the frontend saying "payment successful".
+       */
+
+      const payment =
+        await verifyPaystack(
+          reference
         );
 
 
-      const data =
-        await response.json();
+      const transaction =
+        payment.data;
 
 
-      if (!response.ok) {
+      if (
+        transaction?.status !==
+        "success"
+      ) {
 
-        return res.status(response.status).json({
+        return res.status(400).json({
 
           success: false,
 
           error:
-            data.message ||
-            "Paystack verification failed"
+            "Payment has not been successfully verified",
+
+          paymentStatus:
+            transaction?.status
 
         });
 
       }
 
 
-      const transaction =
-        data.data;
+      const expectedAmount =
+        Math.round(
+          Number(order.price) * 100
+        );
 
 
-      res.json({
+      if (
+        Number(transaction.amount) !==
+        expectedAmount
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Payment amount does not match order amount"
+
+        });
+
+      }
+
+
+      order.paymentReference =
+        reference;
+
+      order.status =
+        "payment_success";
+
+      order.updatedAt =
+        new Date().toISOString();
+
+      ORDERS.set(
+        requestId,
+        order
+      );
+
+
+      /*
+       * Prevent double delivery.
+       */
+
+      if (
+        order.deliveryStatus ===
+        "delivered"
+      ) {
+
+        return res.json({
+
+          success: true,
+
+          message:
+            "Order was already delivered",
+
+          order
+
+        });
+
+      }
+
+
+      const deliveredOrder =
+        await deliverOrder(
+          order
+        );
+
+
+      return res.json({
 
         success: true,
 
-        status:
-          transaction?.status,
+        message:
+          "Data delivery request submitted",
 
-        reference:
-          transaction?.reference,
-
-        amount:
-          transaction?.amount,
-
-        currency:
-          transaction?.currency,
-
-        paid:
-          transaction?.status === "success"
+        order:
+          deliveredOrder
 
       });
 
@@ -978,17 +482,17 @@ app.get(
     catch (error) {
 
       console.error(
-        "PAYSTACK VERIFY ERROR:",
+        "DELIVERY ERROR:",
         error
       );
 
-
-      res.status(500).json({
+      return res.status(500).json({
 
         success: false,
 
         error:
-          "Unable to verify payment"
+          error.message ||
+          "Unable to process delivery"
 
       });
 
@@ -1000,234 +504,262 @@ app.get(
 
 /*
 |--------------------------------------------------------------------------
-| SEND DATA TO CLUBKONNECT
+| CLUBKONNECT CALLBACK
+|--------------------------------------------------------------------------
+|
+| ClubKonnect can call this URL after processing.
+|
+| NOVA accepts both GET and POST because supplier callback
+| formats can differ.
+|
 |--------------------------------------------------------------------------
 */
 
-app.post(
-  "/api/deliver",
-  async (req, res) => {
+async function handleClubKonnectCallback(
+  req,
+  res
+) {
 
-    try {
+  try {
 
-      const {
-        network,
-        phone,
-        planIndex,
-        requestId
-      } = req.body;
+    const payload = {
 
+      ...(req.query || {}),
 
-      if (
-        !network ||
-        !phone ||
-        planIndex === undefined
-      ) {
+      ...(req.body || {})
 
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Network, phone and planIndex are required"
-
-        });
-
-      }
+    };
 
 
-      if (
-        !CLUBKONNECT_USERID ||
-        !CLUBKONNECT_APIKEY
-      ) {
-
-        return res.status(500).json({
-
-          success: false,
-
-          error:
-            "ClubKonnect credentials are missing"
-
-        });
-
-      }
+    console.log(
+      "CLUBKONNECT CALLBACK:",
+      payload
+    );
 
 
-      if (!DATA_PLANS[network]) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Invalid network"
-
-        });
-
-      }
+    const requestId =
+      payload.RequestID ??
+      payload.requestId ??
+      payload.REQUESTID ??
+      payload.requestid;
 
 
-      const index =
-        Number(planIndex);
+    const orderId =
+      payload.OrderID ??
+      payload.orderId ??
+      payload.ORDERID ??
+      payload.orderid;
 
 
-      const plan =
-        DATA_PLANS[network][index];
+    const status =
+      String(
+        payload.Status ??
+        payload.status ??
+        payload.STATUS ??
+        payload.ResponseCode ??
+        payload.responseCode ??
+        ""
+      ).toLowerCase();
 
 
-      if (!plan) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Invalid data plan"
-
-        });
-
-      }
+    let order = null;
 
 
-      const finalRequestId =
-        requestId ||
-        "NOVA-" +
-        Date.now();
+    if (requestId) {
 
-
-      const callbackUrl =
-        process.env.NOVA_CALLBACK_URL ||
-        "";
-
-
-      let url =
-        "https://www.nellobytesystems.com/APIDatabundleV1.asp" +
-        "?UserID=" +
-        encodeURIComponent(
-          CLUBKONNECT_USERID
-        ) +
-        "&APIKey=" +
-        encodeURIComponent(
-          CLUBKONNECT_APIKEY
-        ) +
-        "&MobileNetwork=" +
-        encodeURIComponent(
-          NETWORK_CODES[network]
-        ) +
-        "&DataPlan=" +
-        encodeURIComponent(
-          plan.productCode
-        ) +
-        "&MobileNumber=" +
-        encodeURIComponent(
-          phone
-        ) +
-        "&RequestID=" +
-        encodeURIComponent(
-          finalRequestId
+      order =
+        ORDERS.get(
+          requestId
         );
 
+    }
 
-      if (callbackUrl) {
 
-        url +=
-          "&CallBackURL=" +
-          encodeURIComponent(
-            callbackUrl
-          );
+    /*
+     * Try supplier OrderID if RequestID wasn't found.
+     */
+
+    if (
+      !order &&
+      orderId
+    ) {
+
+      for (
+        const item of ORDERS.values()
+      ) {
+
+        if (
+          String(
+            item.supplierOrderId
+          ) ===
+          String(orderId)
+        ) {
+
+          order = item;
+
+          break;
+
+        }
 
       }
 
+    }
+
+
+    if (!order) {
 
       console.log(
-        "CLUBKONNECT REQUEST:",
+        "CALLBACK ORDER NOT FOUND:",
         {
-          network,
-          networkId:
-            NETWORK_CODES[network],
-          phone,
-          productCode:
-            plan.productCode,
-          requestId:
-            finalRequestId
+          requestId,
+          orderId
         }
       );
 
 
-      const response =
-        await fetch(url);
+      return res.json({
 
+        success: true,
 
-      const raw =
-        await response.text();
-
-
-      let data;
-
-      try {
-
-        data =
-          JSON.parse(raw);
-
-      }
-
-      catch {
-
-        data = {
-          raw
-        };
-
-      }
-
-
-      console.log(
-        "CLUBKONNECT RESPONSE:",
-        data
-      );
-
-
-      res.status(
-        response.ok ? 200 : response.status
-      ).json({
-
-        success:
-          response.ok,
+        message:
+          "Callback received but order was not found",
 
         requestId:
-          finalRequestId,
+          requestId || null,
 
-        network,
-
-        bundle:
-          plan.name,
-
-        response:
-          data
+        orderId:
+          orderId || null
 
       });
 
     }
 
-    catch (error) {
 
-      console.error(
-        "CLUBKONNECT DELIVERY ERROR:",
-        error
-      );
+    order.callback =
+      payload;
 
 
-      res.status(500).json({
+    order.callbackReceivedAt =
+      new Date().toISOString();
 
-        success: false,
 
-        error:
-          "Unable to process data delivery"
+    /*
+     * Map common successful statuses.
+     */
 
-      });
+    const successful =
+      [
+        "success",
+        "successful",
+        "completed",
+        "complete",
+        "delivered",
+        "00"
+      ].includes(status);
+
+
+    const failed =
+      [
+        "failed",
+        "failure",
+        "cancelled",
+        "canceled",
+        "error"
+      ].includes(status);
+
+
+    if (successful) {
+
+      order.deliveryStatus =
+        "delivered";
+
+      order.status =
+        "completed";
+
+      order.deliveredAt =
+        new Date().toISOString();
 
     }
+
+    else if (failed) {
+
+      order.deliveryStatus =
+        "failed";
+
+      order.status =
+        "delivery_failed";
+
+    }
+
+    else {
+
+      order.deliveryStatus =
+        "processing";
+
+      order.status =
+        "delivery_processing";
+
+    }
+
+
+    order.updatedAt =
+      new Date().toISOString();
+
+
+    ORDERS.set(
+      order.requestId,
+      order
+    );
+
+
+    return res.json({
+
+      success: true,
+
+      message:
+        "Callback received",
+
+      requestId:
+        order.requestId,
+
+      status:
+        order.status
+
+    });
 
   }
+
+  catch (error) {
+
+    console.error(
+      "CLUBKONNECT CALLBACK ERROR:",
+      error
+    );
+
+
+    return res.status(500).json({
+
+      success: false,
+
+      error:
+        "Callback processing failed"
+
+    });
+
+  }
+
+}
+
+
+app.get(
+  "/api/clubkonnect/callback",
+  handleClubKonnectCallback
+);
+
+
+app.post(
+  "/api/clubkonnect/callback",
+  handleClubKonnectCallback
 );
 
 
@@ -1285,36 +817,37 @@ app.get(
 
       let url =
         "https://www.nellobytesystems.com/APIQueryV1.asp" +
+
         "?UserID=" +
-        encodeURIComponent(CLUBKONNECT_USERID) +
+        encodeURIComponent(
+          CLUBKONNECT_USERID
+        ) +
+
         "&APIKey=" +
-        encodeURIComponent(CLUBKONNECT_APIKEY);
+        encodeURIComponent(
+          CLUBKONNECT_APIKEY
+        );
 
 
       if (orderId) {
 
         url +=
           "&OrderID=" +
-          encodeURIComponent(orderId);
+          encodeURIComponent(
+            orderId
+          );
 
       }
 
-      else if (requestId) {
+      else {
 
         url +=
           "&RequestID=" +
-          encodeURIComponent(requestId);
+          encodeURIComponent(
+            requestId
+          );
 
       }
-
-
-      console.log(
-        "CLUBKONNECT QUERY:",
-        {
-          orderId,
-          requestId
-        }
-      );
 
 
       const response =
@@ -1326,6 +859,7 @@ app.get(
 
 
       let data;
+
 
       try {
 
@@ -1344,28 +878,149 @@ app.get(
 
 
       console.log(
-        "CLUBKONNECT QUERY RESPONSE:",
+        "CLUBKONNECT QUERY:",
         data
       );
 
 
-      res.status(
+      /*
+       * Update our local order when possible.
+       */
+
+      let localOrder = null;
+
+
+      if (requestId) {
+
+        localOrder =
+          ORDERS.get(
+            requestId
+          );
+
+      }
+
+
+      if (
+        !localOrder &&
+        orderId
+      ) {
+
+        for (
+          const item of ORDERS.values()
+        ) {
+
+          if (
+            String(
+              item.supplierOrderId
+            ) ===
+            String(orderId)
+          ) {
+
+            localOrder =
+              item;
+
+            break;
+
+          }
+
+        }
+
+      }
+
+
+      if (localOrder) {
+
+        localOrder.lastQueryResponse =
+          data;
+
+        localOrder.lastQueriedAt =
+          new Date().toISOString();
+
+
+        const status =
+          String(
+            data?.Status ??
+            data?.status ??
+            data?.ResponseCode ??
+            data?.responseCode ??
+            ""
+          ).toLowerCase();
+
+
+        if (
+          [
+            "success",
+            "successful",
+            "completed",
+            "complete",
+            "delivered",
+            "00"
+          ].includes(status)
+        ) {
+
+          localOrder.deliveryStatus =
+            "delivered";
+
+          localOrder.status =
+            "completed";
+
+          localOrder.deliveredAt =
+            localOrder.deliveredAt ||
+            new Date().toISOString();
+
+        }
+
+
+        else if (
+          [
+            "failed",
+            "failure",
+            "cancelled",
+            "canceled",
+            "error"
+          ].includes(status)
+        ) {
+
+          localOrder.deliveryStatus =
+            "failed";
+
+          localOrder.status =
+            "delivery_failed";
+
+        }
+
+
+        ORDERS.set(
+          localOrder.requestId,
+          localOrder
+        );
+
+      }
+
+
+      return res.status(
         response.ok ? 200 : response.status
       ).json({
 
         success:
           response.ok,
 
-        query: {
-          orderId:
-            orderId || null,
+        queryType:
+          orderId
+            ? "OrderID"
+            : "RequestID",
 
-          requestId:
-            requestId || null
-        },
+        orderId:
+          orderId || null,
+
+        requestId:
+          requestId || null,
 
         response:
-          data
+          data,
+
+        order:
+          localOrder || null
 
       });
 
@@ -1379,7 +1034,7 @@ app.get(
       );
 
 
-      res.status(500).json({
+      return res.status(500).json({
 
         success: false,
 
@@ -1396,22 +1051,89 @@ app.get(
 
 /*
 |--------------------------------------------------------------------------
-| CLUBKONNECT CALLBACK
+| GET LOCAL ORDER
 |--------------------------------------------------------------------------
 */
 
-app.post(
-  "/api/clubkonnect-callback",
+app.get(
+  "/api/order/:requestId",
   (req, res) => {
 
-    console.log(
-      "CLUBKONNECT CALLBACK:",
-      req.body
-    );
+    const order =
+      ORDERS.get(
+        req.params.requestId
+      );
 
-    res.json({
+
+    if (!order) {
+
+      return res.status(404).json({
+
+        success: false,
+
+        error:
+          "Order not found"
+
+      });
+
+    }
+
+
+    /*
+     * Don't expose supplier credentials or supplier cost.
+     */
+
+    const safeOrder = {
+
+      requestId:
+        order.requestId,
+
+      network:
+        order.network,
+
+      phone:
+        order.phone,
+
+      bundle:
+        order.bundle,
+
+      duration:
+        order.duration,
+
+      price:
+        order.price,
+
+      status:
+        order.status,
+
+      deliveryStatus:
+        order.deliveryStatus,
+
+      paymentReference:
+        order.paymentReference,
+
+      supplierOrderId:
+        order.supplierOrderId,
+
+      createdAt:
+        order.createdAt,
+
+      updatedAt:
+        order.updatedAt,
+
+      deliveredAt:
+        order.deliveredAt || null
+
+    };
+
+
+    return res.json({
+
       success: true,
-      received: true
+
+      order:
+        safeOrder
+
     });
 
   }
@@ -1420,7 +1142,167 @@ app.post(
 
 /*
 |--------------------------------------------------------------------------
-| 404 HANDLER
+| PAYSTACK CALLBACK / REDIRECT
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/api/payment/callback",
+  async (req, res) => {
+
+    try {
+
+      const reference =
+        req.query.reference;
+
+
+      if (!reference) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Payment reference is missing"
+
+        });
+
+      }
+
+
+      const order =
+        await processSuccessfulPayment(
+          reference
+        );
+
+
+      if (!order) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Payment could not be verified"
+
+        });
+
+      }
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          "Payment verified",
+
+        requestId:
+          order.requestId,
+
+        status:
+          order.status,
+
+        deliveryStatus:
+          order.deliveryStatus
+
+      });
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "PAYMENT CALLBACK ERROR:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          "Payment callback failed"
+
+      });
+
+    }
+
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| DEBUG / CATALOGUE CHECK
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/api/catalogue/check",
+  (req, res) => {
+
+    const result = {};
+
+
+    for (
+      const [network, plans]
+      of Object.entries(DATA_PLANS)
+    ) {
+
+      result[network] =
+        plans.map(
+          (plan, index) => ({
+
+            index,
+
+            name:
+              plan.name,
+
+            duration:
+              plan.duration,
+
+            sellingPrice:
+              plan.price,
+
+            supplierCost:
+              plan.cost,
+
+            profit:
+              Number(
+                (
+                  plan.price -
+                  plan.cost
+                ).toFixed(2)
+              ),
+
+            safe:
+              plan.price >
+              plan.cost
+
+          })
+        );
+
+    }
+
+
+    res.json({
+
+      success: true,
+
+      catalogue:
+        result
+
+    });
+
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| 404
 |--------------------------------------------------------------------------
 */
 
@@ -1432,10 +1314,38 @@ app.use(
       success: false,
 
       error:
-        "Endpoint not found",
+        "Route not found",
 
       path:
         req.originalUrl
+
+    });
+
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| GLOBAL ERROR HANDLER
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  (error, req, res, next) => {
+
+    console.error(
+      "GLOBAL ERROR:",
+      error
+    );
+
+
+    res.status(500).json({
+
+      success: false,
+
+      error:
+        "Internal server error"
 
     });
 
@@ -1455,7 +1365,47 @@ app.listen(
   () => {
 
     console.log(
-      `NOVA backend running on port ${PORT}`
+      "======================================"
+    );
+
+    console.log(
+      "🚀 NOVA DATA API"
+    );
+
+    console.log(
+      "======================================"
+    );
+
+    console.log(
+      `Port: ${PORT}`
+    );
+
+    console.log(
+      "Status: ONLINE"
+    );
+
+    console.log(
+      "Paystack:",
+      PAYSTACK_SECRET_KEY
+        ? "CONFIGURED"
+        : "MISSING"
+    );
+
+    console.log(
+      "ClubKonnect:",
+      CLUBKONNECT_USERID &&
+      CLUBKONNECT_APIKEY
+        ? "CONFIGURED"
+        : "MISSING"
+    );
+
+    console.log(
+      "Callback:",
+      NOVA_CALLBACK_URL
+    );
+
+    console.log(
+      "======================================"
     );
 
   }
