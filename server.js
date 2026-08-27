@@ -1884,4 +1884,296 @@ app.get(
       return res.status(500).json({
         success: false,
         error:
-          "Unable to query trans
+          "Unable to query transaction"
+      });
+    }
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| CLUBKONNECT CALLBACK
+|--------------------------------------------------------------------------
+|
+| ClubKonnect can call this URL after processing an order.
+|
+| Set:
+|
+| NOVA_CALLBACK_URL=https://your-render-domain.onrender.com/api/callback
+|
+|--------------------------------------------------------------------------
+*/
+
+app.all(
+  "/api/callback",
+  async (req, res) => {
+    try {
+      const payload = {
+        ...(req.query || {}),
+        ...(req.body || {})
+      };
+
+      console.log(
+        "CLUBKONNECT CALLBACK RECEIVED:",
+        payload
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND REQUEST ID
+      |--------------------------------------------------------------------------
+      */
+
+      const requestId =
+        payload.RequestID ||
+        payload.requestId ||
+        payload.REQUESTID ||
+        null;
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND ORDER ID
+      |--------------------------------------------------------------------------
+      */
+
+      const orderId =
+        payload.OrderID ||
+        payload.orderId ||
+        payload.ORDERID ||
+        null;
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND STATUS
+      |--------------------------------------------------------------------------
+      */
+
+      const status =
+        payload.Status ||
+        payload.status ||
+        payload.STATUS ||
+        "";
+
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE LOCAL TRANSACTION
+      |--------------------------------------------------------------------------
+      */
+
+      if (requestId) {
+        const transaction =
+          transactions.get(requestId);
+
+        if (transaction) {
+          const normalizedStatus =
+            String(status)
+              .toLowerCase();
+
+          if (
+            normalizedStatus.includes(
+              "success"
+            ) ||
+            normalizedStatus.includes(
+              "complete"
+            ) ||
+            normalizedStatus.includes(
+              "delivered"
+            )
+          ) {
+            transaction.status =
+              "completed";
+
+            transaction.deliveryStatus =
+              "successful";
+          }
+
+          else if (
+            normalizedStatus.includes(
+              "fail"
+            ) ||
+            normalizedStatus.includes(
+              "error"
+            )
+          ) {
+            transaction.status =
+              "delivery_failed";
+
+            transaction.deliveryStatus =
+              "failed";
+          }
+
+          else {
+            transaction.status =
+              "delivery_processing";
+
+            transaction.deliveryStatus =
+              "processing";
+          }
+
+          if (orderId) {
+            transaction.clubKonnectOrderId =
+              orderId;
+          }
+
+          transaction.updatedAt =
+            new Date().toISOString();
+
+          transactions.set(
+            requestId,
+            transaction
+          );
+        }
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | ALWAYS RESPOND QUICKLY
+      |--------------------------------------------------------------------------
+      */
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Callback received",
+        requestId,
+        orderId,
+        status
+      });
+
+    } catch (error) {
+      console.error(
+        "CALLBACK ERROR:",
+        error
+      );
+
+      return res.status(200).json({
+        success: false,
+        message:
+          "Callback received with processing error"
+      });
+    }
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| GET NOVA TRANSACTION
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/api/transaction/:requestId",
+  (req, res) => {
+    try {
+      const requestId =
+        req.params.requestId;
+
+      const transaction =
+        transactions.get(requestId);
+
+      if (!transaction) {
+        return res.status(404).json({
+          success: false,
+          error:
+            "Transaction not found"
+        });
+      }
+
+      return res.json({
+        success: true,
+        transaction
+      });
+
+    } catch (error) {
+      console.error(
+        "TRANSACTION LOOKUP ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to retrieve transaction"
+      });
+    }
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| 404 HANDLER
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: "Route not found",
+      path: req.originalUrl
+    });
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| GLOBAL ERROR HANDLER
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  (error, req, res, next) => {
+    console.error(
+      "GLOBAL ERROR:",
+      error
+    );
+
+    res.status(500).json({
+      success: false,
+      error:
+        "Internal server error"
+    });
+  }
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| START SERVER
+|--------------------------------------------------------------------------
+*/
+
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `NOVA Data API running on port ${PORT}`
+    );
+
+    console.log(
+      "Paystack:",
+      PAYSTACK_SECRET_KEY
+        ? "configured"
+        : "NOT CONFIGURED"
+    );
+
+    console.log(
+      "ClubKonnect:",
+      CLUBKONNECT_USERID &&
+      CLUBKONNECT_APIKEY
+        ? "configured"
+        : "NOT CONFIGURED"
+    );
+
+    console.log(
+      "Callback:",
+      process.env.NOVA_CALLBACK_URL ||
+      "not configured"
+    );
+  }
+);
