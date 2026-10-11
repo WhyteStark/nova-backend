@@ -1123,6 +1123,10 @@ app.post("/api/deliver", async (req, res) => {
       });
     }
 
+    if (network!== order.network || normalizedPhone !== order.phone || Number(planIndex) !== Number(order.planindex)) {
+      return res.status(400).json({ success: false, message: "Order details do not match the original order." });
+    }
+
     /*
       Prevent duplicate delivery attempts.
     */
